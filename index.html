@@ -1,50 +1,63 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Сканер склада</title><style>
+body{font-family:system-ui;margin:0;background:#111;color:#eee}.w{max-width:760px;margin:auto;padding:14px}
+button,input{font:inherit;padding:13px;border-radius:12px;border:1px solid #555;margin:4px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}.em{grid-column:1/-1;background:#b22;color:#fff;font-size:20px}
+.card{padding:12px;border:1px solid #555;border-radius:14px;margin:10px 0}.yellow{background:#6d5c00}.red{background:#721414}
+.big{font-size:20px;font-weight:800}.row{display:flex;flex-wrap:wrap;gap:5px}.kaspi{padding:7px 11px}
+dialog{width:min(94%,700px);border-radius:14px;padding:12px}video{width:100%;background:#000;border-radius:12px;max-height:48vh}
+.fastbar{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-top:8px}.fastbar button{font-size:16px;font-weight:800}
+.active{outline:3px solid #fff}.shelf{background:#345}.product{background:#274}.kaspib{background:#635}.emergb{background:#a22;color:#fff}
+</style></head><body><div class=w><h1>Сканер склада</h1>
+<div class=grid>
+<button onclick="startScanner('shelf')">Карта склада</button><button onclick="showAll()">Товары / дубли</button>
+<button onclick="showDeleted()">Удалённые товары</button><button onclick="startScanner('kaspi')">Посмотреть на Kaspi</button>
+<button onclick="openDates()">Сканы по датам</button><button class=em onclick="startScanner('emergency')">ЭКСТРЕННЫЙ ОСТАТОК</button>
+</div><div id=msg class=card>Готов.</div><div id=out></div></div>
 
-<title>СКАНЕР</title>
+<dialog id=scan><h3>Сканирование — <span id=modeName></span></h3><video id=v autoplay playsinline></video>
+<div class=fastbar>
+<button id=bshelf class=shelf onclick="switchMode('shelf')">ПОЛКА</button>
+<button id=bproduct class=product onclick="switchMode('product')">ТОВАР</button>
+<button id=bkaspi class=kaspib onclick="switchMode('kaspi')">↗ KASPI</button>
+<button id=bemergency class=emergb onclick="switchMode('emergency')">ЭКСТРЕННЫЙ ОСТАТОК</button>
+</div>
+<div class=row><button onclick=manual()>Ввести код</button><button onclick=closeScanner()>Закрыть</button></div></dialog>
 
-<style>
-body {
-    font-family: Arial, sans-serif;
-    margin: 0;
-    padding: 18px;
-    background: #111;
-    color: white;
-}
+<dialog id=edit><h3>Экстренный остаток</h3><div id=eb></div><button onclick=saveEmergency()>Сохранить</button><button onclick=edit.close()>Закрыть</button></dialog>
+<dialog id=dates><h3>Сканы по датам</h3><label>С <input type=date id=df></label><label>По <input type=date id=dt></label>
+<div class=row><button onclick=quick(0)>Сегодня</button><button onclick=quick(1)>Вчера</button><button onclick=quick(3)>Последние 3 дня</button></div>
+<div id=dp></div><div class=row><button onclick=previewDates()>Показать</button><button onclick=shareDates()>Поделиться</button><button onclick=dates.close()>Закрыть</button></div></dialog>
 
-h1 {
-    text-align: center;
-    font-size: 34px;
-}
-
-#count {
-    text-align: center;
-    font-size: 25px;
-    margin: 15px 0;
-}
-
-#last {
-    text-align: center;
-    font-size: 20px;
-    min-height: 60px;
-    padding: 12px;
-    background: #222;
-    border-radius: 12px;
-    margin-bottom: 15px;
-}
-
-video {
-    width: 100%;
-    max-height: 420px;
-    background: black;
-    border-radius: 12px;
-    display: none;
-}
-
-button {
-    width: 100%;
-    padding: 20px;
-    margin
+<script>
+const KEY='scanner_fast_modes_v1';let db=JSON.parse(localStorage.getItem(KEY)||'{"items":{},"shelves":{},"report6":{},"scans":[],"settings":{"kaspiTemplate":""}}');
+let mode='product',currentShelf=null,code=null,stream=null,detector=null,scanning=false,lastCode='',lastAt=0;
+const $=x=>document.getElementById(x),save=()=>localStorage.setItem(KEY,JSON.stringify(db)),now=()=>new Date().toISOString();
+const esc=x=>(x??'').toString().replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+const names={shelf:'Полка',product:'Товар',kaspi:'Kaspi',emergency:'Экстренный остаток'};
+function updateMode(){ $('modeName').textContent=names[mode]; ['shelf','product','kaspi','emergency'].forEach(x=>$('b'+x)?.classList.toggle('active',x===mode));}
+function switchMode(m){mode=m;updateMode();$('msg').textContent='Режим: '+names[m]+'. Камера остаётся включённой.'}
+async function startScanner(m){mode=m;updateMode();$('scan').showModal();if(stream)return;try{
+stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}});$('v').srcObject=stream;
+if('BarcodeDetector'in window)detector=new BarcodeDetector({formats:['code_128','code_39','ean_13','ean_8','qr_code','itf']});
+scanning=true;loop()}catch(e){$('msg').textContent='Камера недоступна — используйте ввод кода.'}}
+async function loop(){if(!scanning||!$('scan').open)return;if(detector){try{let a=await detector.detect($('v'));if(a[0]){let t=Date.now(),c=a[0].rawValue;if(c!==lastCode||t-lastAt>1800){lastCode=c;lastAt=t;processCode(c)}}}catch(e){}}requestAnimationFrame(loop)}
+function closeScanner(){scanning=false;if(stream)stream.getTracks().forEach(x=>x.stop());stream=null;$('scan').close()}
+function manual(){let x=prompt('Код / трек');if(x)processCode(x.trim())}
+function processCode(x){code=x;if(mode==='shelf'){currentShelf=x;db.shelves[x]=true;save();$('msg').textContent='Выбрана полка '+x+'. Нажмите «ТОВАР» и сканируйте товары.';switchMode('product');return}
+if(mode==='product'){if(!currentShelf){$('msg').textContent='Сначала выберите режим «ПОЛКА» и отсканируйте полку.';return}let i=db.items[x]||{track:x,name:'',stock:'∞',shelves:[],deleted:false};let dup=i.shelves.length&&!i.shelves.includes(currentShelf);if(!i.shelves.includes(currentShelf))i.shelves.push(currentShelf);db.items[x]=i;db.scans.push({track:x,shelf:currentShelf,time:now()});save();render(i,dup);return}
+if(mode==='kaspi'){goKaspi(x);return}if(mode==='emergency'){emergency(x);return}}
+function kaspiButton(t){return `<button class=kaspi onclick="goKaspi('${esc(t)}')">↗ Kaspi</button>`}
+function goKaspi(t){let tpl=db.settings.kaspiTemplate;if(!tpl){tpl=prompt('Укажите рабочий шаблон ссылки Kaspi, где {track} заменяется треком:','')||'';db.settings.kaspiTemplate=tpl;save()}if(tpl)window.open(tpl.replace('{track}',encodeURIComponent(t)),'_blank');else $('msg').textContent='Ссылка Kaspi пока не настроена.'}
+function render(i,dup=false){$('out').innerHTML=`<div class="card ${i.deleted?'red':dup?'yellow':''}"><div class=big>${esc(i.name||'Без названия')}</div>Трек: ${esc(i.track)} ${kaspiButton(i.track)}<br>Остаток: <b>${esc(i.stock)}</b><br>Полки: ${i.shelves.map(esc).join(', ')||'—'}${dup?'<p>Дубликат на другой полке.</p>':''}</div>`}
+function showAll(){$('out').innerHTML=Object.values(db.items).filter(i=>!i.deleted).map(i=>`<div class="card ${i.shelves.length>1?'yellow':''}"><b>${esc(i.name||'Без названия')}</b><br>Трек: ${esc(i.track)} ${kaspiButton(i.track)}<br>Остаток: ${esc(i.stock)}<br>Полки: ${i.shelves.map(esc).join(', ')||'—'}</div>`).join('')||'Пусто'}
+function showDeleted(){$('out').innerHTML=Object.values(db.items).filter(i=>i.deleted).map(i=>`<div class="card red"><b>${esc(i.name||'Без названия')}</b><br>Трек: ${esc(i.track)} ${kaspiButton(i.track)}<br>Удалил: ${esc(i.deletedBy||'—')}<br>Когда: ${esc(i.deletedAt||'—')}</div>`).join('')||'Удалённых нет'}
+function emergency(t){let i=db.items[t]||{track:t,name:'',stock:'∞',shelves:[],deleted:false};db.items[t]=i;save();let stores=db.report6[t]?.stores||[];$('eb').innerHTML=`<p><b>${esc(i.name||'Без названия')}</b></p><p>Трек: ${esc(t)} ${kaspiButton(t)}</p><p>Остаток: <b>${esc(i.stock)}</b></p><p>Магазины из внешнего отчёта: <b>${esc(stores.join(', ')||'нет данных')}</b></p><label>Название<input id=nm value="${esc(i.name)}"></label><label>Новый остаток<input id=qty inputmode=numeric></label><div class=row><button onclick="shareWA('${esc(t)}')">Поделиться → WhatsApp</button></div>`;$('edit').showModal()}
+function saveEmergency(){let i=db.items[code];i.name=$('nm').value.trim();let q=$('qty').value.trim();if(q!=='')i.stock=Math.max(0,parseInt(q)||0);save();$('edit').close();render(i)}
+function shareWA(t){let i=db.items[t]||{},stores=db.report6[t]?.stores||[];location.href='https://wa.me/?text='+encodeURIComponent([i.name||'Товар','Магазины: '+(stores.join(', ')||'нет данных')].join('\n'))}
+function openDates(){quick(0);$('dates').showModal();previewDates()}
+function quick(n){let e=new Date(),s=new Date();if(n===1){s.setDate(s.getDate()-1);e=new Date(s)}else if(n===3)s.setDate(s.getDate()-2);let f=d=>d.toISOString().slice(0,10);$('df').value=f(s);$('dt').value=f(e)}
+function selectedTracks(){let a=new Date($('df').value+'T00:00:00'),b=new Date($('dt').value+'T23:59:59');return [...new Set(db.scans.filter(s=>{let d=new Date(s.time);return d>=a&&d<=b}).map(s=>s.track))]}
+function previewDates(){let a=selectedTracks();$('dp').innerHTML='<p>Товаров: '+a.length+'</p>'+a.map(t=>{let i=db.items[t]||{};return `<div class=card><b>${esc(i.name||'Без названия')}</b><br>${esc(t)} ${kaspiButton(t)}<br>Остаток: ${esc(i.stock??'∞')}</div>`}).join('')}
+async function shareDates(){let a=selectedTracks();let text=a.map(t=>{let i=db.items[t]||{};return [i.name||'Без названия',t,i.stock??'∞'].join(' | ')}).join('\n');try{if(navigator.share)await navigator.share({title:'Сканы склада',text});else{let f=new Blob([text],{type:'text/plain'}),u=URL.createObjectURL(f),x=document.createElement('a');x.href=u;x.download='scans.txt';x.click()}}catch(e){}}
+</script></body></html>
